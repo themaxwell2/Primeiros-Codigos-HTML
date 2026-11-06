@@ -14,6 +14,20 @@
 			],
 			"isBackground": true,
 			"problemMatcher": []
+		},
+		{
+			"label": "Abrir projeto HTML no navegador",
+			"type": "shell",
+			"command": "python3",
+			"args": [
+				"-m",
+				"http.server",
+				"8001",
+				"--directory",
+				"."
+			],
+			"isBackground": true,
+			"problemMatcher": []
 		}
 	]
 }
