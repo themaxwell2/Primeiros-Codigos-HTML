@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Caixinha de Natal</title>
+    <style>
+        :root {
+            color-scheme: light;
+            font-family: Arial, sans-serif;
+            background: #f5f7f4;
+            color: #202820;
+        }
+
+        body {
+            box-sizing: border-box;
+            margin: 0 auto;
+            max-width: 720px;
+            padding: 32px 18px;
+        }
+
+        h1, h2 { color: #17633a; }
+
+        .card {
+            background: #fff;
+            border: 1px solid #dce5dc;
+            border-radius: 12px;
+            margin: 20px 0;
+            padding: 20px;
+        }
+
+        label {
+            display: block;
+            font-weight: bold;
+            margin: 14px 0 6px;
+        }
+
+        input, select, button {
+            box-sizing: border-box;
+            font: inherit;
+            min-height: 44px;
+            padding: 10px;
+            width: 100%;
+        }
+
+        input, select {
+            border: 1px solid #9aa99c;
+            border-radius: 6px;
+        }
+
+        button {
+            background: #17633a;
+            border: 0;
+            border-radius: 6px;
+            color: white;
+            cursor: pointer;
+            font-weight: bold;
+            margin-top: 16px;
+        }
+
+        button:hover { background: #104c2b; }
+        button:disabled { cursor: not-allowed; opacity: 0.6; }
+
+        button.secondary {
+            background: #536357;
+            margin-top: 8px;
+        }
+
+        button.danger { background: #a52c2c; }
+
+        .notice {
+            background: #fff5d8;
+            border-radius: 6px;
+            line-height: 1.5;
+            padding: 12px;
+        }
+
+        .result {
+            background: #e8f5eb;
+            border-radius: 8px;
+            line-height: 1.6;
+            margin-top: 16px;
+            overflow-wrap: anywhere;
+            padding: 16px;
+        }
+
+        .participant {
+            border-top: 1px solid #e1e7e1;
+            padding: 12px 0;
+        }
+
+        .participant-details { overflow-wrap: anywhere; }
+        .participant-actions { display: flex; gap: 8px; }
+
+        .participant-actions button { flex: 1; }
+        .muted { color: #536357; }
+        [hidden] { display: none !important; }
+
+        @media (max-width: 480px) {
+            body { padding: 20px 12px; }
+            .card { padding: 16px; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>🎄 Caixinha de Natal</h1>
+        <p>Escolha uma pessoa para ver os dados do Pix e copiar a chave.</p>
+        <p class="notice"><strong>Demonstração:</strong> os participantes são compartilhados pelo Supabase entre os dispositivos. Use somente dados fictícios nesta versão. A lista e os dados Pix são públicos para quem tiver o link; somente contas autenticadas podem alterar os cadastros.</p>
+        <p id="connection-message" class="notice" role="status" aria-live="polite">Conectando à lista...</p>
+        <button id="admin-access" class="secondary" type="button" hidden>Área do administrador</button>
+    </header>
+
+    <main>
+        <section id="public-view" class="card" aria-labelledby="public-title">
+            <h2 id="public-title">Para quem você quer fazer um Pix?</h2>
+            <label for="recipient">Escolha uma pessoa</label>
+            <select id="recipient" disabled>
+                <option value="">Carregando participantes...</option>
+            </select>
+            <button id="show-pix" type="button" disabled>Mostrar Pix copia e cola</button>
+            <div id="pix-result" class="result" role="status" aria-live="polite" hidden>
+                <p id="pix-message"></p>
+                <button id="copy-pix" type="button">Copiar Pix copia e cola</button>
+            </div>
+        </section>
+
+        <section id="admin-login" class="card" aria-labelledby="admin-login-title" hidden>
+            <h2 id="admin-login-title">Acesso do administrador</h2>
+            <p class="muted">Entre com a conta de administrador criada no Supabase.</p>
+            <form id="login-form">
+                <label for="admin-email">E-mail</label>
+                <input id="admin-email" type="email" autocomplete="username" required>
+                <label for="admin-password">Senha</label>
+                <input id="admin-password" type="password" autocomplete="current-password" required>
+                <button type="submit">Entrar</button>
+            </form>
+            <p id="login-message" class="muted" role="status" aria-live="polite"></p>
+            <button id="cancel-login" class="secondary" type="button">Voltar</button>
+        </section>
+
+        <section id="admin-view" hidden>
+            <section class="card" aria-labelledby="admin-title">
+                <h2 id="admin-title">Gerenciar participantes</h2>
+                <form id="participant-form">
+                    <label for="participant-name">Nome</label>
+                    <input id="participant-name" name="name" autocomplete="name" required maxlength="80">
+                    <label for="participant-pix">Pix copia e cola</label>
+                    <textarea id="participant-pix" name="pix" required maxlength="2048" rows="4" style="box-sizing:border-box;font:inherit;width:100%;padding:10px;border:1px solid #9aa99c;border-radius:6px"></textarea>
+                    <button id="save-participant" type="submit">Adicionar participante</button>
+                    <button id="cancel-edit" class="secondary" type="button" hidden>Cancelar edição</button>
+                </form>
+                <div id="admin-message" class="result" role="status" aria-live="polite" hidden></div>
+                <div id="participants-list">
+                    <p class="muted">Carregando participantes...</p>
+                </div>
+                <button id="admin-logout" class="secondary" type="button">Sair do administrador</button>
+            </section>
+        </section>
+    </main>
+
+    <script src="supabase-config.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+        const recipientSelect = document.querySelector("#recipient");
+        const showPixButton = document.querySelector("#show-pix");
+        const pixResult = document.querySelector("#pix-result");
+        const pixMessage = document.querySelector("#pix-message");
+        const copyPixButton = document.querySelector("#copy-pix");
+        const publicView = document.querySelector("#public-view");
+        const adminAccessButton = document.querySelector("#admin-access");
+        const adminLogin = document.querySelector("#admin-login");
+        const adminView = document.querySelector("#admin-view");
+        const connectionMessage = document.querySelector("#connection-message");
+        const loginForm = document.querySelector("#login-form");
+        const adminEmail = document.querySelector("#admin-email");
+        const adminPassword = document.querySelector("#admin-password");
+        const loginMessage = document.querySelector("#login-message");
+        const participantForm = document.querySelector("#participant-form");
+        const participantName = document.querySelector("#participant-name");
+        const participantPix = document.querySelector("#participant-pix");
+        const saveParticipantButton = document.querySelector("#save-participant");
+        const cancelEditButton = document.querySelector("#cancel-edit");
+        const participantsList = document.querySelector("#participants-list");
+        const adminMessage = document.querySelector("#admin-message");
+        let participants = [];
+        let editingParticipantId = null;
+        let currentPix = "";
+        let supabaseClient;
+
+        function showAdminMessage(message) {
+            adminMessage.textContent = message;
+            adminMessage.hidden = false;
+        }
+
+        function setConnectionMessage(message) {
+            connectionMessage.textContent = message;
+        }
+
+        function setAdminMode(isAdmin) {
+            adminView.hidden = !isAdmin;
+            publicView.hidden = isAdmin;
+            adminAccessButton.hidden = isAdmin || !supabaseClient;
+            adminLogin.hidden = true;
+            if (isAdmin) {
+                renderParticipants();
+            }
+        }
+
+        function renderPublicMenu() {
+            const previousSelection = recipientSelect.value;
+            recipientSelect.replaceChildren();
+            const placeholder = document.createElement("option");
+            placeholder.value = "";
+            placeholder.textContent = participants.length
+                ? "Selecione uma pessoa"
+                : "A lista ainda não foi cadastrada";
+            recipientSelect.append(placeholder);
+
+            participants.forEach((person) => {
+                const option = document.createElement("option");
+                option.value = person.id;
+                option.textContent = person.name;
+                recipientSelect.append(option);
+            });
+
+            recipientSelect.value = participants.some((person) => person.id === previousSelection)
+                ? previousSelection
+                : "";
+            recipientSelect.disabled = participants.length === 0;
+            showPixButton.disabled = !recipientSelect.value;
+        }
+
+        function renderParticipants() {
+            participantsList.replaceChildren();
+            if (participants.length === 0) {
+                const emptyMessage = document.createElement("p");
+                emptyMessage.className = "muted";
+                emptyMessage.textContent = "Ainda não há participantes.";
+                participantsList.append(emptyMessage);
+                return;
+            }
+
+            participants.forEach((person) => {
+                const row = document.createElement("div");
+                row.className = "participant";
+                const details = document.createElement("div");
+                details.className = "participant-details";
+                const name = document.createElement("strong");
+                name.textContent = person.name;
+                const pix = document.createElement("p");
+                pix.className = "muted";
+                pix.textContent = person.pix;
+                details.append(name, pix);
+
+                const actions = document.createElement("div");
+                actions.className = "participant-actions";
+                const editButton = document.createElement("button");
+                editButton.type = "button";
+                editButton.className = "secondary";
+                editButton.textContent = "Editar";
+                editButton.addEventListener("click", () => startEditing(person));
+                const removeButton = document.createElement("button");
+                removeButton.type = "button";
+                removeButton.className = "danger";
+                removeButton.textContent = "Remover";
+                removeButton.addEventListener("click", () => removeParticipant(person.id));
+                actions.append(editButton, removeButton);
+                row.append(details, actions);
+                participantsList.append(row);
+            });
+        }
+
+        function startEditing(person) {
+            editingParticipantId = person.id;
+            participantName.value = person.name;
+            participantPix.value = person.pix;
+            saveParticipantButton.textContent = "Salvar alterações";
+            cancelEditButton.hidden = false;
+            participantName.focus();
+        }
+
+        function resetEditForm() {
+            editingParticipantId = null;
+            participantForm.reset();
+            saveParticipantButton.textContent = "Adicionar participante";
+            cancelEditButton.hidden = true;
+        }
+
+        async function refreshParticipants() {
+            const { data, error } = await supabaseClient
+                .from("participants")
+                .select("id, name, pix")
+                .order("name");
+            if (error) {
+                console.error("Não foi possível carregar os participantes.", error);
+                setConnectionMessage("Erro ao carregar a lista do Supabase. Confira a configuração e as políticas RLS.");
+                return false;
+            }
+            participants = data;
+            renderPublicMenu();
+            if (!adminView.hidden) {
+                renderParticipants();
+            }
+            setConnectionMessage("Lista sincronizada. As alterações aparecem nos dispositivos conectados.");
+            return true;
+        }
+
+        async function removeParticipant(id) {
+            const { error } = await supabaseClient
+                .from("participants")
+                .delete()
+                .eq("id", id);
+            if (error) {
+                console.error("Não foi possível remover o participante.", error);
+                showAdminMessage("Não foi possível remover. Verifique a conexão e o acesso de administrador.");
+                return;
+            }
+            adminMessage.hidden = true;
+            pixResult.hidden = true;
+            if (editingParticipantId === id) {
+                resetEditForm();
+            }
+            await refreshParticipants();
+        }
+
+        adminAccessButton.addEventListener("click", () => {
+            publicView.hidden = true;
+            adminAccessButton.hidden = true;
+            adminLogin.hidden = false;
+            loginMessage.textContent = "";
+            loginForm.reset();
+            adminEmail.focus();
+        });
+
+        document.querySelector("#cancel-login").addEventListener("click", () => {
+            adminLogin.hidden = true;
+            publicView.hidden = false;
+            adminAccessButton.hidden = !supabaseClient;
+        });
+
+        loginForm.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            loginMessage.textContent = "";
+            const { error } = await supabaseClient.auth.signInWithPassword({
+                email: adminEmail.value.trim(),
+                password: adminPassword.value
+            });
+            if (error) {
+                console.error("Falha no login administrativo.", error);
+                loginMessage.textContent = "Não foi possível entrar. Confira o e-mail e a senha da conta administradora.";
+                return;
+            }
+            loginForm.reset();
+            setAdminMode(true);
+            await refreshParticipants();
+        });
+
+        participantForm.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            if (adminView.hidden) {
+                return;
+            }
+
+            const name = participantName.value.trim();
+            const pix = participantPix.value.trim();
+            if (!name || !pix) {
+                return;
+            }
+
+            const query = supabaseClient.from("participants");
+            const result = editingParticipantId
+                ? await query.update({ name, pix }).eq("id", editingParticipantId)
+                : await query.insert({ name, pix });
+            if (result.error) {
+                console.error("Não foi possível salvar o participante.", result.error);
+                showAdminMessage(result.error.code === "23505"
+                    ? "Já existe um participante com esse nome."
+                    : "Não foi possível salvar. Verifique a conexão e o acesso de administrador.");
+                return;
+            }
+
+            resetEditForm();
+            adminMessage.hidden = true;
+            await refreshParticipants();
+        });
+
+        cancelEditButton.addEventListener("click", resetEditForm);
+
+        recipientSelect.addEventListener("change", () => {
+            pixResult.hidden = true;
+            currentPix = "";
+            showPixButton.disabled = !recipientSelect.value;
+        });
+
+        showPixButton.addEventListener("click", () => {
+            const person = participants.find((entry) => entry.id === recipientSelect.value);
+            if (!person) {
+                return;
+            }
+            currentPix = person.pix;
+            pixMessage.textContent = `Pix copia e cola de ${person.name}: ${person.pix}`;
+            pixResult.hidden = false;
+        });
+
+        copyPixButton.addEventListener("click", async () => {
+            if (!currentPix) {
+                return;
+            }
+            try {
+                await navigator.clipboard.writeText(currentPix);
+                copyPixButton.textContent = "Pix copia e cola copiado!";
+            } catch (error) {
+                console.error("Não foi possível copiar o Pix copia e cola.", error);
+                copyPixButton.textContent = "Não foi possível copiar. Selecione e copie o texto acima.";
+            }
+        });
+
+        document.querySelector("#admin-logout").addEventListener("click", async () => {
+            const { error } = await supabaseClient.auth.signOut();
+            if (error) {
+                console.error("Não foi possível encerrar a sessão.", error);
+                showAdminMessage("Não foi possível encerrar a sessão. Tente novamente.");
+                return;
+            }
+            resetEditForm();
+            setAdminMode(false);
+            renderPublicMenu();
+        });
+
+        async function start() {
+            const config = window.CAIXINHA_SUPABASE_CONFIG;
+            if (!config?.url || !config?.anonKey || !window.supabase?.createClient) {
+                setConnectionMessage("Configure a URL e a chave anon do Supabase em Codigos/supabase-config.js.");
+                return;
+            }
+
+            supabaseClient = window.supabase.createClient(config.url, config.anonKey);
+            adminAccessButton.hidden = false;
+
+            const { data, error } = await supabaseClient.auth.getSession();
+            if (error) {
+                console.error("Não foi possível verificar a sessão.", error);
+                setConnectionMessage("Não foi possível verificar a sessão no Supabase.");
+            } else {
+                setAdminMode(Boolean(data.session));
+            }
+
+            supabaseClient.auth.onAuthStateChange((_event, session) => {
+                setAdminMode(Boolean(session));
+            });
+            await refreshParticipants();
+            supabaseClient
+                .channel("participants-changes")
+                .on("postgres_changes", {
+                    event: "*",
+                    schema: "public",
+                    table: "participants"
+                }, () => {
+                    refreshParticipants().catch((refreshError) => {
+                        console.error("Não foi possível sincronizar a lista.", refreshError);
+                        setConnectionMessage("Erro ao sincronizar alterações. Atualize a página para tentar novamente.");
+                    });
+                })
+                .subscribe((status, subscriptionError) => {
+                    if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+                        console.error("A sincronização em tempo real falhou.", subscriptionError);
+                        setConnectionMessage("A lista foi carregada, mas a sincronização em tempo real falhou. Atualize a página para ver alterações.");
+                    }
+                });
+        }
+
+        renderPublicMenu();
+        start().catch((error) => {
+            console.error("Não foi possível iniciar a aplicação.", error);
+            setConnectionMessage("Erro ao conectar ao Supabase. Verifique a configuração e tente novamente.");
+        });
+    </script>
+</body>
+</html>
